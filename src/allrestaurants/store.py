@@ -102,6 +102,14 @@ class Store:
                 )
                 """
             )
+            # Migration: cell keys used to be geometry alone, so a re-run with a
+            # different --types skipped every circle as already searched. Keys are
+            # now prefixed by the type scope; every pre-existing row was collected
+            # under the default restaurant-only scope.
+            self.conn.execute(
+                "UPDATE search_cells SET cell_key = 'restaurant|' || cell_key "
+                "WHERE instr(cell_key, '|') = 0"
+            )
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_restaurants_city ON restaurants(city)"
             )
@@ -186,6 +194,16 @@ class Store:
     def cell_done(self, cell_key: str) -> bool:
         return self.get_cell(cell_key) is not None
 
+    @staticmethod
+    def scoped_key(scope: str, cell_key: str) -> str:
+        """Resume keys are per type filter, not per position alone.
+
+        The same circle searched for restaurants and for cafes are two different
+        searches returning different places; keying on geometry alone made the
+        second one look already done.
+        """
+        return f"{scope}|{cell_key}"
+
     def get_cell(self, cell_key: str):
         """Return the log row for a searched circle, or None if never searched.
 
@@ -199,7 +217,8 @@ class Store:
             ).fetchone()
 
     def record_cell(
-        self, cell, result_count: int, saturated: bool, split: bool
+        self, cell, result_count: int, saturated: bool, split: bool,
+        scope: str = "restaurant"
     ) -> None:
         with self._lock:
             self.conn.execute(
@@ -207,7 +226,7 @@ class Store:
                 "(cell_key, latitude, longitude, radius_m, depth, result_count, "
                 " saturated, split, searched_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (
-                    cell.key,
+                    self.scoped_key(scope, cell.key),
                     cell.lat,
                     cell.lng,
                     cell.radius_m,

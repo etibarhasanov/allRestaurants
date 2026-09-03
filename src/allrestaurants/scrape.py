@@ -79,6 +79,9 @@ class Sweeper:
         self.client = client
         self.store = store
         self.included_types = list(included_types)
+        # Identifies the resume scope: the same circle searched for restaurants
+        # and for cafes are two distinct searches.
+        self.scope = ",".join(sorted(self.included_types))
         self.min_radius_m = min_radius_m
         self.max_depth = max_depth
         self.workers = max(1, workers)
@@ -123,7 +126,7 @@ class Sweeper:
     def _search_one(self, circle: Circle) -> List[Circle]:
         """Search one circle, persist its places, return any children to queue."""
         if self.resume:
-            prior = self.store.get_cell(circle.key)
+            prior = self.store.get_cell(self.store.scoped_key(self.scope, circle.key))
             if prior is not None:
                 self.stats.cells_skipped += 1
                 # Re-queue the children of a circle that was split, so an
@@ -146,7 +149,11 @@ class Sweeper:
                 if (row.get("user_rating_count") or 0) < self.min_reviews:
                     below_bar += 1
                     continue
-            if self.restaurants_only and not is_restaurant(row.get("primary_type")):
+            primary = row.get("primary_type")
+            # A type the caller explicitly asked for is never "not a restaurant":
+            # --types bar,bakery means bars and bakeries are wanted.
+            asked_for = primary in self.included_types
+            if self.restaurants_only and not asked_for and not is_restaurant(primary):
                 # Still counts toward the circle's 20, so it does not change the
                 # split decision -- it just does not belong in the results.
                 self.stats.skipped_not_restaurant += 1
@@ -161,7 +168,9 @@ class Sweeper:
         self.stats.cells_searched += 1
         self.stats.results_seen += count
         self.stats.max_depth = max(self.stats.max_depth, circle.depth)
-        self.store.record_cell(circle, count, count >= MAX_RESULTS_PER_CALL, split)
+        self.store.record_cell(
+            circle, count, count >= MAX_RESULTS_PER_CALL, split, scope=self.scope
+        )
 
         if not split:
             return []

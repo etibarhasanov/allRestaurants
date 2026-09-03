@@ -58,15 +58,16 @@ def test_row_without_place_id_is_rejected(tmp_path):
 def test_cell_log_drives_resume(tmp_path):
     store = Store(str(tmp_path / "t.db"))
     circle = Circle(40.0, 49.0, 500.0)
-    assert store.cell_done(circle.key) is False
+    key = store.scoped_key("restaurant", circle.key)
+    assert store.cell_done(key) is False
     store.record_cell(circle, result_count=20, saturated=True, split=True)
-    assert store.cell_done(circle.key) is True
+    assert store.cell_done(key) is True
 
     stats = store.cell_stats()
     assert stats["cells"] == 1 and stats["saturated"] == 1
 
     store.reset_cells()
-    assert store.cell_done(circle.key) is False
+    assert store.cell_done(key) is False
     store.close()
 
 
@@ -125,3 +126,34 @@ def test_exports(tmp_path):
     with open(json_path, encoding="utf-8") as fh:
         assert json.load(fh)[0]["place_id"] == "a"
     store.close()
+
+
+def test_resume_is_scoped_to_the_type_filter(tmp_path):
+    """The same circle searched for restaurants and for cafes are two searches.
+
+    Regression: keys were geometry alone, so re-running an area with a wider
+    --types skipped every circle as already done and returned nothing new.
+    """
+    store = Store(str(tmp_path / "t.db"))
+    circle = Circle(40.0, 49.0, 500.0)
+    store.record_cell(circle, 20, True, True, scope="restaurant")
+
+    assert store.cell_done(store.scoped_key("restaurant", circle.key)) is True
+    assert store.cell_done(store.scoped_key("bar,cafe,restaurant", circle.key)) is False
+    store.close()
+
+
+def test_legacy_cell_keys_migrate_to_the_restaurant_scope(tmp_path):
+    """Databases written before scoping hold restaurant-only searches."""
+    path = str(tmp_path / "t.db")
+    store = Store(path)
+    circle = Circle(40.0, 49.0, 500.0)
+    store.conn.execute(
+        "INSERT INTO search_cells (cell_key, latitude, longitude, radius_m, depth) "
+        "VALUES (?,?,?,?,?)", (circle.key, 40.0, 49.0, 500.0, 0))
+    store.conn.commit()
+    store.close()
+
+    reopened = Store(path)   # schema setup runs the migration
+    assert reopened.cell_done(reopened.scoped_key("restaurant", circle.key)) is True
+    reopened.close()

@@ -1,68 +1,87 @@
-# Tallinn dataset — what is in it, and what is not
+# Tallinn dataset — coverage and what is still missing
 
-`tallinn_restaurants.csv` holds **750 restaurants**, collected 2026-09-03 in
-**318 Google Places API calls** (~$11.13), keeping places with **25 or more
-reviews** and excluding shops, hotels and malls.
+`tallinn_restaurants.csv` holds **1,110 places** collected 2026-09-03, keeping
+anything with **25 or more reviews**.
 
-## How it was collected
+## Cross-check against Tallinn Tastebuds
 
-| pass | area | circle size | calls | new |
-|---|---|---|---|---|
-| 1 | 5 km around centre | 1383 m | 51 | 358 |
-| 2 | Old Town, 0.5 km | 200 m | 90 | 246 |
-| 3 | Kesklinn, 1.5 km | 300 m | 80 | 149 |
-| 4 | Kalamaja, 1.0 km | 300 m | 50 | 27 |
-| 5 | Telliskivi, 0.5 km | 250 m | 35 | 12 |
-| — | density probes | — | 12 | — |
+Checked against the 74 curated places in
+`etibarhasanov/tallinntastebuds` → `data/restaurants.json`, matched on
+coordinates and name, with every borderline case confirmed by hand.
 
-The first pass used 1383 m circles across the whole city and found only 43
-places within a kilometre of the centre. Circle size, not area, was the
-constraint: a circle returns at most 20 places, so a coarse one in a dense
-district returns its 20 best and hides the rest. Re-running the centre at
-200-300 m is what took the dataset from 358 to 750.
+| pass | matched |
+|---|---|
+| restaurants only, 5 km, coarse circles | 49 / 74 (66%) |
+| after district passes at 200–300 m | 49 / 74 |
+| **after widening the type filter** | **70 / 74 (95%)** |
 
-## Cross-check against known Tallinn restaurants
+Excluding the two places that have closed permanently: **70 / 72 (97%)**.
 
-`tools/crosscheck.py` against `tools/tallinn_reference.csv` — 41 names from
-Michelin Guide Estonia 2026, Tallinn Tastebuds picks recoverable via search,
-and long-standing local landmarks.
+## Why places were missing — four separate causes
 
-**34 of 41 present (83%)**, up from 16 of 41 (39%) after the first pass.
+**1. Google's type taxonomy (the big one, 22 of the original 25).**
+Every search sent `includedTypes: ["restaurant"]`. Google returns a place only
+if *restaurant* appears in its own type list, and Google does not consider a
+café, bakery, pub or bar to be a restaurant. Lb23 was covered by nine search
+circles and returned by none of them; it is typed
+`bar, coffee_shop, cafe, food_store, store`. Miss rates by category before the
+fix: coffee 75%, cafés 71%, bakery 56%, pub 46% — against restaurant 7% and
+fine dining 0%.
 
-Includes 180 Degrees, FUME, Fotografiska, Vesta, Gianni, Koyo, Härg,
-Tchaikovsky, Mantel & Korsten, 5Senses, MEKK, Pull, Salt, Rado, Farm, Frenchy,
-Cru, Kaerajaan, Von Krahl, Rataskaevu 16, Olde Hansa, Põhjala.
+Widening to `restaurant,cafe,coffee_shop,bakery,bar,pub,wine_bar,meal_takeaway,`
+`ice_cream_shop,dessert_shop,sandwich_shop,tea_house,brewery` recovered most of
+them. A second widening was needed for places Google types as shops rather than
+eateries — `chocolate_shop` (Chocolala, 487 reviews), `confectionery`,
+`donut_shop`, `deli`.
 
-**Not found (7):**
+**2. Areas never searched (3).** Baklažaan in Mustamäe, Shaurma Kebab in
+Lasnamäe, Buxhöwden pagar in Viimsi all sat outside every circle. Fixed with
+small targeted passes.
 
-- **NOA Chef's Hall** (1 Michelin star) — in Pirita, roughly 7 km north-east,
-  outside every district scanned. A separate pass would pick it up.
-- **Leib Resto ja Aed** — Old Town, which stopped at its 90-call ceiling with
-  splitting still queued. Most likely recoverable by re-running that pass.
-- **Juur, Ribe, Sfäär, Umami, Kaks Kokka** — absent from the raw database under
-  any spelling. Several of these are long-standing names that may have closed;
-  the reference list was assembled partly from general knowledge and is not
-  guaranteed current.
+**3. Below the review bar (1).** Nullijook has 19 reviews, under the 25-review
+threshold, so it is excluded by design. Balta Chill (9) and Pilsneri baar (5)
+are the same.
 
-One match was rejected by hand: "Kaks Kokka" fuzzy-matched "Kaks Kokapoissi",
-a different restaurant. The 83% is after removing it.
+**4. Permanently closed (2).** Maison François and Lendav Maaler are both
+`CLOSED_PERMANENTLY` in Google. Google's nearby search does not return them, so
+no sweep will ever find them. The curated list is ahead of reality here.
 
-## Known limits
+## Still missing (4 of 74)
 
-- All five passes stopped at a spending ceiling rather than at exhaustion, so
-  the data is a floor, not a complete census. Re-running any command continues
-  from its resume log rather than starting over.
-- Places with fewer than 25 reviews are excluded by design.
-- tallinntastebuds.ee could not be fetched (blocked by the collecting
-  environment's network policy), so only the picks that surfaced through search
-  are represented in the reference list.
-- Name matching is conservative: a name reported missing may still be present
-  under a spelling too different to match. Each was additionally checked by
-  substring against the raw database.
+| place | why |
+|---|---|
+| Kokomo Coffee Roasters | 233 reviews, typed `coffee_roastery`; not returned by any type filter tried. Findable only by name search. |
+| Nullijook | 19 reviews — under the 25-review bar, by design |
+| Maison François | permanently closed on Google |
+| Lendav Maaler | permanently closed on Google |
+
+## How to search Google Places properly, in short
+
+- `includedTypes` is matched against a place's own type list, not against what a
+  human would call it. Ask for `restaurant` alone and you get no cafés,
+  bakeries, bars or pubs — a systematic hole, not a sampling gap.
+- A nearby search returns at most 20 places per call, so circle size must suit
+  density. A 1383 m circle over Old Town found 43 places in the central
+  kilometre; 200 m circles found several hundred.
+- Widening the types makes each circle saturate sooner, so a wider sweep needs a
+  bigger budget for the same area, not the same one.
+- Permanently closed places are never returned. Absence is not always a bug.
+
+## Reproducing
+
+```bash
+TYPES="restaurant,cafe,coffee_shop,bakery,bar,pub,wine_bar,meal_takeaway,\
+ice_cream_shop,dessert_shop,sandwich_shop,tea_house,brewery,chocolate_shop,\
+confectionery,donut_shop,deli"
+allrestaurants scan --center "59.4372,24.7453" --radius-km 0.5 \
+    --cell-radius-m 200 --types "$TYPES"
+```
+
+The resume log is keyed by type filter as well as position, so re-running an
+area with a wider `--types` searches it again rather than skipping it as done.
 
 ## Terms of service
 
-This data is Google Places content. Google's terms allow caching place IDs
-indefinitely but generally not the rest beyond 30 days, and restrict building
-a standalone database from it. `allrestaurants prune --older-than-days 30`
-clears stale content while keeping IDs. See the README before republishing.
+This is Google Places content. Google allows caching place IDs indefinitely but
+generally not the rest beyond 30 days. `allrestaurants prune --older-than-days 30`
+clears stale content while keeping IDs.
