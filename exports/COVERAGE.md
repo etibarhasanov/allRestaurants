@@ -37,11 +37,20 @@ are two. Identity is therefore decided on evidence, strongest first:
 | street + house number | 10 | with positions in agreement |
 | name + position | 1 | the weak fallback, needing both |
 
-A phone number that *disagrees* vetoes a weaker match — this is what separates
-Kokomo Coffee Roasters from KIOSK NO3, who share a doorway at Ankru 10. But an
-identical name overrides that veto, because a stale number on one side is far
-likelier than two identically-named businesses on one doorstep (Crustum Bakery,
-Lokaal Tilk).
+A phone number that *disagrees* vetoes a weaker match. Kokomo Coffee Roasters
+and KIOSK NO3 are two businesses sharing a doorway at Ankru 10, 32 m apart:
+address and position say one place, and only the differing numbers separate
+them.
+
+An identical name overrides that veto, because a stale number on one side is far
+likelier than two identically-named businesses on one doorstep. Two independent
+cases, each a curated record matched to its own counterpart in the collected
+data — not to each other:
+
+- *Crustum Bakery*, Iva 12 in Mustamäe — same name, same address, 0 m apart,
+  two different numbers on record.
+- *Lokaal Tilk*, Pärnu mnt 66 — likewise. The two are 5.9 km apart and are
+  never compared.
 
 Three matches would have been missed by name comparison alone: `KoHo` →
 `Telliskivi KoHo`, `KotKot` → `kot.NOBLESSNER`, `Laboratooriumi 23` → `Lb23`.
