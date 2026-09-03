@@ -92,3 +92,36 @@ def test_parse_helpers():
         parse_latlng("95,10")
     with pytest.raises(ValueError):
         parse_bbox("40.42,49.83,40.38,49.90")
+
+
+def test_cell_radius_for_budget_scales_with_area_and_budget():
+    from allrestaurants.geo import cell_radius_for_budget
+
+    area = math.pi * 5000**2
+    small_budget = cell_radius_for_budget(area, 50)
+    large_budget = cell_radius_for_budget(area, 500)
+    assert small_budget > large_budget, "a smaller budget needs bigger circles"
+
+    bigger_area = cell_radius_for_budget(math.pi * 10000**2, 50)
+    assert bigger_area > small_budget, "a bigger area needs bigger circles"
+
+    with pytest.raises(ValueError):
+        cell_radius_for_budget(area, 0)
+
+
+def test_budget_sizing_fits_the_grid_inside_the_budget():
+    """Regression: --budget 50 used to build a 52-circle starting grid."""
+    from types import SimpleNamespace
+
+    from allrestaurants.cli import _build_circles
+
+    for radius_km in (1, 2, 5, 8, 20):
+        for budget in (20, 50, 100, 300):
+            args = SimpleNamespace(
+                bbox=None, center="59.4370,24.7536",
+                radius_km=radius_km, cell_radius_m=1000.0, budget=budget,
+            )
+            circles = _build_circles(args)
+            assert len(circles) <= budget * 0.7 + 1, (
+                f"{radius_km}km at budget {budget}: {len(circles)} starting circles"
+            )

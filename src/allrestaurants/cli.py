@@ -46,35 +46,55 @@ def _configure_logging(verbose: bool) -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
-def _resolve_cell_radius(args) -> float:
-    """Honour --budget by sizing the starting grid to fit it."""
-    if not getattr(args, "budget", None):
-        return args.cell_radius_m
+def _tile(args, cell_radius_m: float) -> List[Circle]:
+    if args.bbox:
+        south, west, north, east = parse_bbox(args.bbox)
+        return cover_bbox(south, west, north, east, cell_radius_m)
+    lat, lng = parse_latlng(args.center)
+    return cover_radius(lat, lng, args.radius_km * 1000.0, cell_radius_m)
 
+
+def _area_m2(args) -> float:
     if args.bbox:
         south, west, north, east = parse_bbox(args.bbox)
         mid = (south + north) / 2
-        height = (north - south) * METRES_PER_DEGREE_LAT
-        width = (east - west) * metres_per_degree_lng(mid)
-        area = width * height
-    else:
-        area = math.pi * (args.radius_km * 1000.0) ** 2
-
-    radius = cell_radius_for_budget(area, args.budget)
-    logging.info(
-        "--budget %d: sizing starting circles to %.0fm radius", args.budget, radius
-    )
-    return radius
+        return ((north - south) * METRES_PER_DEGREE_LAT) * (
+            (east - west) * metres_per_degree_lng(mid)
+        )
+    return math.pi * (args.radius_km * 1000.0) ** 2
 
 
 def _build_circles(args) -> List[Circle]:
-    """Turn --center/--radius-km or --bbox into the level-0 search circles."""
-    cell_radius = _resolve_cell_radius(args)
-    if args.bbox:
-        south, west, north, east = parse_bbox(args.bbox)
-        return cover_bbox(south, west, north, east, cell_radius)
-    lat, lng = parse_latlng(args.center)
-    return cover_radius(lat, lng, args.radius_km * 1000.0, cell_radius)
+    """Turn --center/--radius-km or --bbox into the level-0 search circles.
+
+    With --budget, the starting radius is solved for rather than computed once:
+    the closed form ignores how the grid actually lands on the area (and the
+    ring of edge circles a circular area keeps), which overshot badly enough
+    that a 50-call budget produced 52 starting circles -- a sweep that could
+    not finish even its first level, let alone split anything.
+    """
+    if not getattr(args, "budget", None):
+        return _tile(args, args.cell_radius_m)
+
+    target = max(1, int(args.budget * 0.7))
+    radius = cell_radius_for_budget(_area_m2(args), args.budget)
+    circles = _tile(args, radius)
+    for _ in range(12):
+        if len(circles) <= target:
+            break
+        # Too many circles: grow each one to cover proportionally more ground.
+        radius *= math.sqrt(len(circles) / target) * 1.05
+        circles = _tile(args, radius)
+
+    logging.info(
+        "--budget %d: %d starting circle(s) of radius %.0fm, "
+        "leaving %d call(s) for splitting",
+        args.budget,
+        len(circles),
+        radius,
+        max(0, args.budget - len(circles)),
+    )
+    return circles
 
 
 def _add_area_arguments(parser: argparse.ArgumentParser) -> None:
@@ -238,6 +258,7 @@ def cmd_estimate(args) -> int:
     if args.budget:
         # --budget also caps the run, so the estimate must not exceed it.
         high = min(high, args.budget)
+        low = min(low, high)
 
     mode = (
         f"places with >= {args.min_reviews} reviews"
@@ -246,9 +267,15 @@ def cmd_estimate(args) -> int:
     )
     print(f"  mode                 : {mode}")
     print(f"  starting circles     : {base}")
-    print(f"  API calls (estimate) : {low} (sparse area) - {high} (dense centre)")
+    if low == high:
+        print(f"  API calls (estimate) : {high} (capped by --budget)")
+    else:
+        print(f"  API calls (estimate) : {low} (sparse area) - {high} (dense centre)")
     print(f"  price per call       : ${price:.4f} ({args.tier} tier)")
-    print(f"  cost (estimate)      : ${low * price:.2f} - ${high * price:.2f}")
+    if low == high:
+        print(f"  cost (estimate)      : ${high * price:.2f}")
+    else:
+        print(f"  cost (estimate)      : ${low * price:.2f} - ${high * price:.2f}")
     print()
     print("  The spread is real: splitting is driven by how many restaurants")
     print("  are packed together, which cannot be known before you look.")
