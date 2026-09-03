@@ -20,6 +20,7 @@ from .geo import (
     parse_bbox,
     parse_latlng,
 )
+from .models import normalize_place
 from .places import TIER_ORDER, PlacesClient, PlacesError, resolve_types
 from .scrape import Sweeper
 from .store import Store, export_csv, export_json
@@ -263,6 +264,66 @@ def cmd_estimate(args) -> int:
     return 0
 
 
+# -- check ------------------------------------------------------------------
+
+
+def cmd_check(args) -> int:
+    """Spend one API call to prove the key works before committing a budget."""
+    env = load_env(args.env_file)
+    api_key = args.api_key or env.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        print(
+            "error: no API key. Put GOOGLE_MAPS_API_KEY in .env or pass --api-key.",
+            file=sys.stderr,
+        )
+        return 1
+
+    lat, lng = parse_latlng(args.center)
+    client = PlacesClient(api_key=api_key, tier=args.tier, qps=0, max_requests=1)
+    print(f"  probing {args.tier!r} fields at {lat},{lng} ...")
+    try:
+        places = client.search_nearby(
+            Circle(lat, lng, 1000.0),
+            included_types=resolve_types(args.types),
+            rank_preference="POPULARITY",
+        )
+    except PlacesError as exc:
+        message = str(exc)
+        print(f"\n  FAILED: {message}\n", file=sys.stderr)
+        if "403" in message or "PERMISSION_DENIED" in message:
+            print("  Likely causes:", file=sys.stderr)
+            print("   - 'Places API (New)' is not enabled on the project", file=sys.stderr)
+            print("   - the key's API restrictions exclude Places API (New)", file=sys.stderr)
+            print("   - an application restriction (HTTP referrer / IP) blocks"
+                  " server-side use", file=sys.stderr)
+        elif "billing" in message.lower():
+            print("  Billing is not enabled on the Google Cloud project.", file=sys.stderr)
+        elif "400" in message:
+            print("  The key was rejected as malformed - check for stray"
+                  " whitespace when pasting.", file=sys.stderr)
+        return 1
+
+    rated = [p for p in places if p.get("userRatingCount") is not None]
+    print(f"\n  OK - the key works. {len(places)} place(s) returned, 1 call used.\n")
+    for raw in places[:5]:
+        row = normalize_place(raw)
+        reviews = row["user_rating_count"]
+        rating = row["rating"]
+        print(f"    {row['name']}"
+              f"  {rating if rating is not None else '?'}*"
+              f"  ({reviews if reviews is not None else '?'} reviews)")
+    if len(places) > 5:
+        print(f"    ... and {len(places) - 5} more")
+
+    if not rated:
+        print("\n  WARNING: no review counts came back, so --min-reviews cannot")
+        print("  work. The key may be limited to a cheaper SKU.")
+        return 1
+    print("\n  Review counts are present, so --min-reviews will work.")
+    print("  Ready to scan.")
+    return 0
+
+
 # -- export / stats / prune -------------------------------------------------
 
 
@@ -462,6 +523,16 @@ def build_parser() -> argparse.ArgumentParser:
     estimate.set_defaults(max_requests=None)
     estimate.add_argument("--price-per-call", type=float, default=None)
     estimate.set_defaults(func=cmd_estimate)
+
+    check = sub.add_parser(
+        "check",
+        help="Spend one API call to verify the key and show sample results.",
+    )
+    check.add_argument("--center", required=True, help="Somewhere to probe, 'lat,lng'.")
+    check.add_argument("--api-key", help="Overrides GOOGLE_MAPS_API_KEY.")
+    check.add_argument("--tier", choices=TIER_ORDER, default="ratings")
+    check.add_argument("--types", default="restaurant")
+    check.set_defaults(func=cmd_check)
 
     export = sub.add_parser("export", help="Export collected restaurants.")
     export.add_argument("--format", choices=["csv", "json"], default="csv")
