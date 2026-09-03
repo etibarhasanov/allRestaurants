@@ -6,16 +6,45 @@ anything with **25 or more reviews**.
 ## Cross-check against Tallinn Tastebuds
 
 Checked against the 74 curated places in
-`etibarhasanov/tallinntastebuds` → `data/restaurants.json`, matched on
-coordinates and name, with every borderline case confirmed by hand.
+`etibarhasanov/tallinntastebuds` → `data/restaurants.json`.
+
+Run it yourself — no API calls, no manual steps:
+
+```bash
+PYTHONPATH=tools python3 tools/report_coverage.py \
+    ../etibarhasanov/tallinntastebuds/data/restaurants.json \
+    exports/tallinn_restaurants.csv data/restaurants.db
+```
 
 | pass | matched |
 |---|---|
-| restaurants only, 5 km, coarse circles | 49 / 74 (66%) |
-| after district passes at 200–300 m | 49 / 74 |
-| **after widening the type filter** | **70 / 74 (95%)** |
+| restaurants only, 5 km, coarse circles | 49 / 70 (70%) |
+| **after widening the type filter** | **66 / 70 (94%)** |
 
-Excluding the two places that have closed permanently: **70 / 72 (97%)**.
+Four curated places are marked `closed` in the source and are excluded from the
+comparison: Google's nearby search never returns a closed place, so counting
+them as misses would be counting an impossibility.
+
+### How two records are judged to be the same place
+
+Name similarity cannot do this job. `Lb23` and `Laboratooriumi 23` share no
+words and are one bar; `Uus Laine` and `Pilsneri baar` sit 13 metres apart and
+are two. Identity is therefore decided on evidence, strongest first:
+
+| evidence | matches | note |
+|---|---|---|
+| phone number | 55 | an exact key — two businesses do not share a line |
+| street + house number | 10 | with positions in agreement |
+| name + position | 1 | the weak fallback, needing both |
+
+A phone number that *disagrees* vetoes a weaker match — this is what separates
+Kokomo Coffee Roasters from KIOSK NO3, who share a doorway at Ankru 10. But an
+identical name overrides that veto, because a stale number on one side is far
+likelier than two identically-named businesses on one doorstep (Crustum Bakery,
+Lokaal Tilk).
+
+Three matches would have been missed by name comparison alone: `KoHo` →
+`Telliskivi KoHo`, `KotKot` → `kot.NOBLESSNER`, `Laboratooriumi 23` → `Lb23`.
 
 ## Why places were missing — four separate causes
 
@@ -46,14 +75,21 @@ are the same.
 `CLOSED_PERMANENTLY` in Google. Google's nearby search does not return them, so
 no sweep will ever find them. The curated list is ahead of reality here.
 
-## Still missing (4 of 74)
+## Still missing (4 of 70)
 
-| place | why |
-|---|---|
-| Kokomo Coffee Roasters | 233 reviews, typed `coffee_roastery`; not returned by any type filter tried. Findable only by name search. |
-| Nullijook | 19 reviews — under the 25-review bar, by design |
-| Maison François | permanently closed on Google |
-| Lendav Maaler | permanently closed on Google |
+`report_coverage.py` classifies each miss from the sweep log automatically,
+separating the three failures that need different fixes: an area never covered
+needs another pass, a circle that came back full needs splitting, and a circle
+that had room and still did not return a place was filtering it out.
+
+All four fall in the last category — searched, with room to spare, and excluded:
+
+| place | reviews | why |
+|---|---|---|
+| Kokomo Coffee Roasters | 233 | typed `coffee_roastery`; no type filter tried returns it |
+| Nullijook | 19 | under the 25-review bar, by design |
+| Balta Chill | 9 | under the 25-review bar, by design |
+| Pilsneri baar | 5 | under the 25-review bar, by design |
 
 ## How to search Google Places properly, in short
 
