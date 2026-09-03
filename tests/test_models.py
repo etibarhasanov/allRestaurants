@@ -96,3 +96,30 @@ def test_sparse_result_does_not_raise():
     assert row["rating"] is None
     assert row["city"] is None
     assert set(row) == set(COLUMNS)
+
+
+def test_is_restaurant_rejects_shops_hotels_and_malls():
+    """These outrank real restaurants on review count, so they cost results."""
+    from allrestaurants.models import is_restaurant
+
+    for t in ("supermarket", "hypermarket", "grocery_store", "shopping_mall",
+              "hotel", "market", "gas_station", "sauna", "bowling_alley"):
+        assert not is_restaurant(t), t
+
+
+def test_is_restaurant_keeps_every_kind_of_eating_place():
+    from allrestaurants.models import is_restaurant
+
+    for t in ("restaurant", "fast_food_restaurant", "pizza_restaurant", "cafe",
+              "bistro", "pub", "brewpub", "gastropub", "meal_takeaway",
+              "coffee_shop", "fine_dining_restaurant", "kebab_shop"):
+        assert is_restaurant(t), t
+
+
+def test_unknown_and_missing_types_are_kept():
+    """Google adds types constantly; dropping a real restaurant is the worse error."""
+    from allrestaurants.models import is_restaurant
+
+    assert is_restaurant(None)
+    assert is_restaurant("")
+    assert is_restaurant("some_new_type_google_invented")

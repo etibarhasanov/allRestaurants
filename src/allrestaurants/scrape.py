@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
 from .geo import Circle
-from .models import normalize_place
+from .models import is_restaurant, normalize_place
 from .places import MAX_RESULTS_PER_CALL, BudgetExhausted, PlacesClient, PlacesError
 from .store import Store
 
@@ -25,6 +25,7 @@ class SweepStats:
     cells_pruned: int = 0
     cells_below_bar: int = 0
     skipped_below_bar: int = 0
+    skipped_not_restaurant: int = 0
     results_seen: int = 0
     new_places: int = 0
     max_depth: int = 0
@@ -70,6 +71,7 @@ class Sweeper:
         region_code: Optional[str] = None,
         rank_preference: str = "DISTANCE",
         min_reviews: int = 0,
+        restaurants_only: bool = True,
         resume: bool = True,
         progress_every: int = 25,
         split_only_if_new: bool = False,
@@ -84,6 +86,7 @@ class Sweeper:
         self.region_code = region_code
         self.rank_preference = rank_preference
         self.min_reviews = max(0, min_reviews)
+        self.restaurants_only = restaurants_only
         self.resume = resume
         self.progress_every = progress_every
         self.split_only_if_new = split_only_if_new
@@ -143,6 +146,11 @@ class Sweeper:
                 if (row.get("user_rating_count") or 0) < self.min_reviews:
                     below_bar += 1
                     continue
+            if self.restaurants_only and not is_restaurant(row.get("primary_type")):
+                # Still counts toward the circle's 20, so it does not change the
+                # split decision -- it just does not belong in the results.
+                self.stats.skipped_not_restaurant += 1
+                continue
             if self.store.upsert_place(row, raw):
                 new_here += 1
         self.stats.new_places += new_here

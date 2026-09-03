@@ -20,7 +20,7 @@ from .geo import (
     parse_bbox,
     parse_latlng,
 )
-from .models import normalize_place
+from .models import NON_RESTAURANT_PRIMARY_TYPES, normalize_place
 from .places import TIER_ORDER, PlacesClient, PlacesError, resolve_types
 from .scrape import Sweeper
 from .store import Store, export_csv, export_json
@@ -35,6 +35,15 @@ APPROX_PRICE_PER_CALL = {
     "ratings": 0.035,
     "full": 0.040,
 }
+
+
+def _restaurant_filter(where: str, include_all: bool) -> str:
+    """AND the non-restaurant exclusion onto an optional user filter."""
+    if include_all:
+        return where
+    quoted = ", ".join(f"'{t}'" for t in sorted(NON_RESTAURANT_PRIMARY_TYPES))
+    clause = f"(primary_type IS NULL OR primary_type NOT IN ({quoted}))"
+    return f"({where}) AND {clause}" if where else clause
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -193,6 +202,7 @@ def cmd_scan(args) -> int:
         region_code=args.region,
         rank_preference=rank,
         min_reviews=args.min_reviews,
+        restaurants_only=not args.keep_non_restaurants,
         resume=not args.no_resume,
         split_only_if_new=args.split_only_if_new,
     )
@@ -220,6 +230,11 @@ def cmd_scan(args) -> int:
         print(
             f"  ignored          : {stats.skipped_below_bar} result(s) under "
             f"{args.min_reviews} reviews"
+        )
+    if not args.keep_non_restaurants:
+        print(
+            f"  not restaurants  : {stats.skipped_not_restaurant} "
+            "(shops, hotels, malls)"
         )
     print(f"  total in db      : {total}")
     print(f"  elapsed          : {stats.elapsed_s:.0f}s")
@@ -357,10 +372,11 @@ def cmd_check(args) -> int:
 def cmd_export(args) -> int:
     store = Store(args.db)
     try:
+        where = _restaurant_filter(args.where or "", args.keep_non_restaurants)
         if args.format == "csv":
-            count = export_csv(store, args.out, args.where or "")
+            count = export_csv(store, args.out, where)
         else:
-            count = export_json(store, args.out, args.where or "")
+            count = export_json(store, args.out, where)
     finally:
         store.close()
     print(f"wrote {count} restaurant(s) to {args.out}")
@@ -503,6 +519,14 @@ def build_parser() -> argparse.ArgumentParser:
             " expensive). Default: 25."
         ),
     )
+    scan.add_argument(
+        "--keep-non-restaurants",
+        action="store_true",
+        help=(
+            "Keep supermarkets, malls, hotels and the like. Google returns them"
+            " because they contain somewhere to eat; they are dropped by default."
+        ),
+    )
     scan.add_argument("--min-radius-m", type=float, default=40.0,
                       help="Stop splitting below this radius. Default: 40.")
     scan.add_argument("--max-depth", type=int, default=6,
@@ -566,6 +590,8 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", required=True, help="Output file path.")
     export.add_argument("--where", default=None,
                         help="Optional SQL filter, e.g. \"rating >= 4.5\".")
+    export.add_argument("--keep-non-restaurants", action="store_true",
+                        help="Include shops, hotels and malls in the output.")
     export.set_defaults(func=cmd_export)
 
     stats = sub.add_parser("stats", help="Summarise what is in the database.")

@@ -22,6 +22,35 @@ PRICE_LABELS: Dict[str, str] = {
     "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
 }
 
+# Google returns a place whenever "restaurant" appears anywhere in its type
+# list, which sweeps in every supermarket, mall and hotel that happens to have
+# a food court. They are not restaurants, and because they carry huge review
+# counts they outrank real ones in a popularity-ranked search -- so they cost
+# results, not just tidiness. Filtered on primary type, which is Google's own
+# answer to "what is this place, mainly?".
+NON_RESTAURANT_PRIMARY_TYPES = frozenset({
+    "airport", "amusement_park", "bank", "bowling_alley", "bus_station",
+    "casino", "convenience_store", "cultural_center", "department_store",
+    "discount_store", "drugstore", "event_venue", "extended_stay_hotel",
+    "ferry_terminal", "gas_station", "grocery_store", "gym", "home_goods_store",
+    "hospital", "hostel", "hotel", "hypermarket", "inn", "liquor_store",
+    "lodging", "market", "motel", "movie_theater", "museum", "night_club",
+    "park", "parking", "pharmacy", "resort_hotel", "sauna", "school",
+    "shopping_mall", "spa", "sporting_goods_store", "stadium", "store",
+    "supermarket", "tourist_attraction", "train_station", "transit_station",
+    "university", "warehouse_store", "wholesaler", "zoo",
+})
+
+
+def is_restaurant(primary_type: Optional[str]) -> bool:
+    """Whether a place's primary type is a place you go to eat.
+
+    Unknown types count as restaurants: Google adds new ones regularly, and
+    wrongly dropping a real restaurant is worse than keeping a stray shop.
+    """
+    return (primary_type or "") not in NON_RESTAURANT_PRIMARY_TYPES
+
+
 # addressComponent type -> our column name.
 _ADDRESS_PARTS = {
     "street_number": "street_number",
