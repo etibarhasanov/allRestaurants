@@ -17,6 +17,13 @@ So identity is decided on evidence, strongest first:
 Anything the curated source marks as closed is excluded from the comparison
 rather than counted as a miss: a permanently closed place is not returned by
 Google's nearby search, so no sweep can ever find it.
+
+A comparison is therefore only as good as the keys in the list it is given. A
+list of names alone cannot be checked against: "Siga" and "Siga la Vaca" are one
+restaurant and score 0.50, while "Cru" and "ORU Bistro" are two and score higher
+on some measures. Compare against a source carrying phone numbers, addresses or
+coordinates; a bare name list will produce a number that has to be corrected by
+hand, which is not a check.
 """
 
 from __future__ import annotations

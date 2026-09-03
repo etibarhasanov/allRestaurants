@@ -5,6 +5,13 @@ anything with **25 or more reviews**.
 
 ## Cross-check against Tallinn Tastebuds
 
+The comparison runs against `tallinntastebuds`' own data, which carries phone
+numbers, addresses and coordinates. An earlier check used a hand-written list of
+41 names with none of those keys; it has been removed. A name-only list cannot
+be matched reliably in either direction — "Siga" and "Siga la Vaca" are one
+restaurant, "Uus Laine" and "Pilsneri baar" are two — so it produced figures
+that needed correcting by hand, which is not a check.
+
 Checked against the 74 curated places in
 `etibarhasanov/tallinntastebuds` → `data/restaurants.json`.
 
