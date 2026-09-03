@@ -8,10 +8,15 @@
 *.db-journal
 *.sqlite3
 data/
-exports/
 *.csv
 *.json
 !salesforce/**/*.json
+
+# Collected datasets and the reference lists used to check them are tracked
+# deliberately. Note these carry Google Places content -- see the terms of
+# service section in the README before publishing a copy.
+!exports/*.csv
+!tools/*.csv
 
 # Python
 __pycache__/
