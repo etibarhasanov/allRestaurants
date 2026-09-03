@@ -1,0 +1,29 @@
+# Secrets
+.env
+*.env
+!.env.example
+
+# Data / outputs
+*.db
+*.db-journal
+*.sqlite3
+data/
+exports/
+*.csv
+*.json
+!salesforce/**/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "allrestaurants"
+version = "0.1.0"
+description = "Sweep Google Places for every restaurant in an area and sync them into Salesforce."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31,<3",
+    "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+salesforce = ["simple-salesforce>=1.12,<2"]
+dev = ["pytest>=8.0", "simple-salesforce>=1.12,<2"]
+
+[project.scripts]
+allrestaurants = "allrestaurants.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <allowInChatterGroups>false</allowInChatterGroups>
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>Restaurants collected from the Google Places API.</description>
+    <enableActivities>true</enableActivities>
+    <enableBulkApi>true</enableBulkApi>
+    <enableFeeds>false</enableFeeds>
+    <enableHistory>false</enableHistory>
+    <enableReports>true</enableReports>
+    <enableSearch>true</enableSearch>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <fields>
+        <fullName>Google_Place_Id__c</fullName>
+        <description>Stable Google Places identifier. Used as the upsert key.</description>
+        <externalId>true</externalId>
+        <label>Google Place ID</label>
+        <length>128</length>
+        <required>true</required>
+        <type>Text</type>
+        <unique>true</unique>
+    </fields>
+    <fields>
+        <fullName>Google_Maps_URL__c</fullName>
+        <description>Link to the restaurant's Google Maps listing.</description>
+        <label>Google Maps Profile</label>
+        <type>Url</type>
+    </fields>
+    <fields>
+        <fullName>Website__c</fullName>
+        <label>Website</label>
+        <type>Url</type>
+    </fields>
+    <fields>
+        <fullName>Phone__c</fullName>
+        <label>Phone</label>
+        <type>Phone</type>
+    </fields>
+    <fields>
+        <fullName>Phone_International__c</fullName>
+        <label>Phone (International)</label>
+        <type>Phone</type>
+    </fields>
+    <fields>
+        <fullName>Formatted_Address__c</fullName>
+        <label>Address</label>
+        <length>255</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Street__c</fullName>
+        <label>Street</label>
+        <length>255</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>City__c</fullName>
+        <label>City</label>
+        <length>100</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Region__c</fullName>
+        <label>State/Region</label>
+        <length>100</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Postal_Code__c</fullName>
+        <label>Postal Code</label>
+        <length>20</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Country__c</fullName>
+        <label>Country</label>
+        <length>100</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Latitude__c</fullName>
+        <label>Latitude</label>
+        <precision>10</precision>
+        <scale>7</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>Longitude__c</fullName>
+        <label>Longitude</label>
+        <precision>11</precision>
+        <scale>7</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>Rating__c</fullName>
+        <description>Mean Google review score, 1.0-5.0.</description>
+        <label>Average Rating</label>
+        <precision>2</precision>
+        <scale>1</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>User_Rating_Count__c</fullName>
+        <label>Number of Reviews</label>
+        <precision>18</precision>
+        <scale>0</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>Price_Level__c</fullName>
+        <description>0 = free, 1 = inexpensive, ... 4 = very expensive.</description>
+        <label>Price Level</label>
+        <precision>1</precision>
+        <scale>0</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>Price_Label__c</fullName>
+        <label>Price</label>
+        <length>10</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Business_Status__c</fullName>
+        <description>OPERATIONAL, CLOSED_TEMPORARILY or CLOSED_PERMANENTLY.</description>
+        <label>Business Status</label>
+        <length>40</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Primary_Type__c</fullName>
+        <label>Primary Type</label>
+        <length>100</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Cuisine_Type__c</fullName>
+        <label>Cuisine / Category</label>
+        <length>100</length>
+        <type>Text</type>
+    </fields>
+    <fields>
+        <fullName>Google_Types__c</fullName>
+        <label>Google Categories</label>
+        <length>1000</length>
+        <type>LongTextArea</type>
+        <visibleLines>3</visibleLines>
+    </fields>
+    <fields>
+        <fullName>Opening_Hours__c</fullName>
+        <label>Opening Hours</label>
+        <length>2000</length>
+        <type>LongTextArea</type>
+        <visibleLines>8</visibleLines>
+    </fields>
+    <fields>
+        <fullName>Description__c</fullName>
+        <label>Description</label>
+        <length>4000</length>
+        <type>LongTextArea</type>
+        <visibleLines>5</visibleLines>
+    </fields>
+    <fields>
+        <fullName>Takeout__c</fullName>
+        <label>Takeout</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Delivery__c</fullName>
+        <label>Delivery</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Dine_In__c</fullName>
+        <label>Dine In</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Reservable__c</fullName>
+        <label>Reservable</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Serves_Beer__c</fullName>
+        <label>Serves Beer</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Serves_Wine__c</fullName>
+        <label>Serves Wine</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Serves_Vegetarian__c</fullName>
+        <label>Serves Vegetarian</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Outdoor_Seating__c</fullName>
+        <label>Outdoor Seating</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Good_For_Children__c</fullName>
+        <label>Good For Children</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Wheelchair_Accessible__c</fullName>
+        <label>Wheelchair Accessible</label>
+        <type>Checkbox</type>
+        <defaultValue>false</defaultValue>
+    </fields>
+    <fields>
+        <fullName>Last_Synced__c</fullName>
+        <description>When this record was last refreshed from Google Places.</description>
+        <label>Last Synced</label>
+        <type>DateTime</type>
+    </fields>
+    <label>Restaurant</label>
+    <nameField>
+        <label>Restaurant Name</label>
+        <type>Text</type>
+    </nameField>
+    <pluralLabel>Restaurants</pluralLabel>
+    <sharingModel>ReadWrite</sharingModel>
+</CustomObject>
