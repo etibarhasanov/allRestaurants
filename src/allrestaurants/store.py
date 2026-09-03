@@ -184,11 +184,19 @@ class Store:
     # -- resume log --------------------------------------------------------
 
     def cell_done(self, cell_key: str) -> bool:
+        return self.get_cell(cell_key) is not None
+
+    def get_cell(self, cell_key: str):
+        """Return the log row for a searched circle, or None if never searched.
+
+        Resuming needs more than a yes/no: a circle that was split has children
+        that may never have been searched, and those have to be queued again or
+        the sweep resumes with a truncated frontier and calls itself finished.
+        """
         with self._lock:
-            row = self.conn.execute(
-                "SELECT 1 FROM search_cells WHERE cell_key = ?", (cell_key,)
+            return self.conn.execute(
+                "SELECT * FROM search_cells WHERE cell_key = ?", (cell_key,)
             ).fetchone()
-        return row is not None
 
     def record_cell(
         self, cell, result_count: int, saturated: bool, split: bool

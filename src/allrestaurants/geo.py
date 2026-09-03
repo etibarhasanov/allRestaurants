@@ -177,3 +177,20 @@ def parse_bbox(text: str) -> Tuple[float, float, float, float]:
     if west >= east:
         raise ValueError("west must be less than east")
     return south, west, north, east
+
+
+def cell_radius_for_budget(area_m2: float, budget_calls: int) -> float:
+    """Pick a starting circle radius whose grid roughly fits a call budget.
+
+    Circles on a grid of spacing ``s`` each stand in for ``s**2`` of ground, so
+    fitting ``n`` of them over an area means ``s = sqrt(area / n)``.  Inverting
+    the spacing rule from :func:`cover_bbox` gives the radius.
+
+    Only about 70% of the budget goes to the starting grid; the rest is left for
+    splitting the circles that turn out to be dense.
+    """
+    if budget_calls < 1:
+        raise ValueError("budget_calls must be at least 1")
+    grid_calls = max(1.0, budget_calls * 0.7)
+    spacing = math.sqrt(area_m2 / grid_calls)
+    return max(25.0, spacing / (math.sqrt(2.0) * COVERAGE_MARGIN))

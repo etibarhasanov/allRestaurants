@@ -6,9 +6,19 @@ Salesforce.
 This is the "moving pin" approach, automated. Google's Nearby Search returns at
 most **20 places per call**, no matter how many actually sit inside the circle
 you asked about. So you cover an area by tiling it with overlapping search
-circles, and whenever a circle comes back with a full 20 results — meaning more
-are hiding behind them — you split it into four smaller circles and look again.
-Repeat until nothing comes back full.
+circles, and where a circle is clearly still hiding good places you split it
+into four smaller circles and look again.
+
+By default it collects **places with at least 25 reviews**, which is what keeps
+it cheap. Every circle comes back ranked by popularity, so it hands over the 20
+most established restaurants in it — and the weakest of those 20 is the signal
+to stop: if even that one clears the review bar, better places are hiding
+behind it and the circle is worth splitting; the moment a circle returns a
+place with 6 reviews, its tail is in view and there is nothing left worth
+finding.
+
+That one rule is the difference between **2,176 API calls and about 50**. Set
+`--min-reviews 0` if you really do want every hole-in-the-wall.
 
 For each restaurant you get its name, Google Maps profile link, address,
 coordinates, **average rating and review count**, price level, phone, website,
@@ -49,29 +59,38 @@ cp .env.example .env      # then fill in your keys
 ### 1. Check the cost first
 
 ```bash
-allrestaurants estimate --center "40.4093,49.8671" --radius-km 5
+allrestaurants estimate --center "40.4093,49.8671" --radius-km 5 --budget 100
 ```
-
-Do run this. The number of API calls depends on how densely packed the
-restaurants are, which you cannot know before you look, so the range is wide.
 
 ### 2. Sweep the area
 
+Name a call budget and the starting circles get sized to fit it:
+
 ```bash
-# A circle around a point
-allrestaurants scan --center "40.4093,49.8671" --radius-km 5
-
-# Or a bounding box
-allrestaurants scan --bbox "40.32,49.79,40.45,49.95"
-
-# A first run, kept deliberately cheap
-allrestaurants scan --center "40.4093,49.8671" --radius-km 2 \
-    --max-requests 300 --split-only-if-new
+allrestaurants scan --center "40.4093,49.8671" --radius-km 5 --budget 100
 ```
 
-The sweep is **resumable**. Every circle it finishes is logged, so if you stop
-it — or it hits `--max-requests` — re-running the identical command picks up
-where it left off instead of paying Google twice. Ctrl-C is safe.
+Or set the geometry yourself:
+
+```bash
+allrestaurants scan --center "40.4093,49.8671" --radius-km 5 --cell-radius-m 400
+allrestaurants scan --bbox "40.32,49.79,40.45,49.95"
+```
+
+**Spend a little, look, then spend more.** The sweep is resumable: every circle
+it finishes is logged, so re-running the *identical* command picks up where it
+left off rather than paying Google twice. Ctrl-C is safe, and so is hitting the
+budget. Measured on the test fixture, running the same `--budget 50` command
+repeatedly:
+
+| run | calls | cumulative | recall of places with 25+ reviews |
+|---|---|---|---|
+| #1 | 50 | 50 | 77% |
+| #2 | 50 | 100 | 100% |
+| #3 | 16 | 116 | 100% |
+| #4 | 0 | 116 | complete — nothing left to search |
+
+So a first look costs about 50 calls, and you decide whether to keep going.
 
 ### 3. Look at what you got
 
@@ -114,25 +133,52 @@ centre can make thousands of billable calls.
 
 | Lever | Effect |
 |---|---|
-| `--max-requests N` | Hard cap. The sweep stops cleanly and resumes later. **Use this on your first run.** |
-| `--split-only-if-new` | Skip splitting a full circle when everything it returned was already known. Measured at ~13x fewer calls on a dense test fixture, with no loss of recall — but see the caveat below. |
-| `--cell-radius-m` | Starting circle size. Larger means fewer initial calls but more splitting in dense areas. |
-| `--max-depth`, `--min-radius-m` | How far splitting may recurse. Lower means cheaper, and risks missing places in dense clusters. |
+| `--min-reviews N` | **Biggest lever by far.** Raising the bar both discards junk and stops circles splitting sooner. Default 25. |
+| `--budget N` | Sizes the starting grid to fit N calls, keeps ~30% back for splitting, and caps the run there. Resume to go further. |
+| `--cell-radius-m` | Starting circle size, if you'd rather set it directly. |
+| `--split-only-if-new` | Also skip splitting a circle when everything it returned was already known. |
+| `--max-depth`, `--min-radius-m` | How far splitting may recurse. |
 | `--tier` | Which fields to request. `standard` drops ratings, phone and hours for a cheaper billing SKU; `ratings` (default) includes them; `full` adds the editorial blurb and service attributes. |
 
-**The `--split-only-if-new` caveat**: it is a heuristic, not a guarantee. A
-circle can return 20 already-known places while still hiding an unknown one
-behind them. It is off by default for that reason. On the test fixture it lost
-nothing; on real data, treat it as a cost/completeness trade you are choosing.
+Measured on the test fixture — 400 restaurants in a 1 km circle, 115 of them
+with 25+ reviews, a long tail of tiny places below that:
 
-### Why ranking is set to DISTANCE
+| mode | calls | recall of 25+ review places | rows stored |
+|---|---|---|---|
+| `--min-reviews 0` (census) | 2,176 | 100% | 357 |
+| `--min-reviews 25`, 1 km circles | 358 | 98% | 135 |
+| `--min-reviews 25 --split-only-if-new` | 42 | 90% | 125 |
+| `--min-reviews 50`, 1.5 km circles | 174 | 100% (of 64) | 78 |
+| `--min-reviews 25 --budget 100` | 100 | 92% | — |
 
-The sweep asks the API for results ranked by **distance**, not Google's usual
-popularity. This is what makes the whole approach work: ranked by distance, a
-smaller circle returns its 20 nearest places and so reliably reveals what the
-bigger circle hid. Ranked by popularity, the same well-known restaurants come
-back however far you split, and you can never drill past them. `--rank` can
-change it, but there is rarely a good reason to.
+Two things that surprised me while measuring, both worth knowing:
+
+- **A finer starting grid is cheaper than splitting a coarse one.** 350 m
+  circles cost 122 calls for full recall; 700 m circles cost 309. Splitting
+  re-covers ground the parent call already paid for, so the parent is wasted
+  work. If a run feels expensive, shrink `--cell-radius-m` before anything else.
+- **The numbers are non-monotonic.** 300 m cost more than 250 m *and* more than
+  350 m, purely from how the grid happened to land on the clusters. Treat any
+  single figure here as indicative, not a law.
+
+**The `--split-only-if-new` caveat**: it is a heuristic. A circle can return 20
+already-known places while still hiding an unknown one behind them — that is
+exactly the 90% row above. Off by default for that reason.
+
+### Why ranking follows the mode
+
+Ranking is chosen to match what you asked for, and the two modes want opposite
+things:
+
+- **With a review bar** (default), results are ranked by **popularity**. Each
+  circle hands back its most established places, so the weakest of the 20 is a
+  usable "have we reached the tail yet" signal.
+- **In census mode** (`--min-reviews 0`), results are ranked by **distance**.
+  Popularity would return the same famous restaurants however far you split,
+  and you could never drill past them; ranked by distance, a smaller circle
+  reliably reveals what a bigger one hid.
+
+`--rank` overrides this, but the defaults are the right pairing.
 
 ---
 
@@ -175,19 +221,24 @@ for you.
   └───────────────────────┘
               │
               ▼
-    search each circle          Nearby Search, ranked by distance,
+    search each circle          Nearby Search, ranked by popularity,
               │                 max 20 results.
               ▼
-      got 20 results?  ──no──►  done, this circle is fully enumerated
+      got a full 20?   ──no──►  done, this circle is exhausted
               │
-             yes                more are hiding behind those 20
+             yes
+              ▼
+      did any of them   ──yes─► done: the tail is in view, everything
+      fall below the            else in this circle ranks below places
+      review bar?               we have already rejected
               │
+              no                the good ones are still hiding
               ▼
       split into 4 circles      each at (±r/2, ±r/2) with radius r/√2,
       and search those          which is exactly enough to cover the parent
               │
-              └──► repeat until nothing comes back full,
-                   or --max-depth / --min-radius-m stops it
+              └──► repeat until every circle stops,
+                   or --budget / --max-depth / --min-radius-m ends it
 ```
 
 | Module | Role |
@@ -210,7 +261,7 @@ pip install -e .[dev]
 pytest
 ```
 
-55 tests, no network calls. The interesting ones:
+57 tests, no network calls. The interesting ones:
 
 - `test_geo.py` samples points across generated grids and asserts every one
   falls inside some circle — the gap-free coverage claim, checked with real
@@ -219,11 +270,12 @@ pytest
 - `test_scrape.py` runs the sweep against a fake API holding a known set of
   restaurants, and asserts it finds **all 60** where a single call would have
   returned 20. It also covers resume, budget exhaustion, per-circle failures,
-  and that concurrent workers agree with serial ones.
-
-Measured end to end on a 400-restaurant fixture (327 inside the search area):
-**100% recall**, in 2,136 calls exhaustively or 160 calls with
-`--split-only-if-new`.
+  the review-bar stopping rule, and that concurrent workers agree with serial
+  ones.
+- `test_resume_rebuilds_the_pending_split_frontier` is a regression test for a
+  real bug: a run stopped by its budget mid-split used to resume, find every
+  circle already logged, and report a truncated sweep as complete. Resume now
+  re-queues the children of circles that were split.
 
 ## Limits worth knowing
 
@@ -233,3 +285,7 @@ Measured end to end on a 400-restaurant fixture (327 inside the search area):
   `--types` (e.g. `restaurant,cafe,bar,bakery,meal_takeaway`) if that matters.
 - Reviews themselves are not collected, only the average and the count. Review
   text carries extra display and attribution obligations.
+- A review bar is a proxy for "worth selling to", not the same thing. A good
+  restaurant that opened last month has few reviews. If that matters, sweep
+  once at a low bar to establish a baseline, then re-sweep periodically at a
+  higher one.

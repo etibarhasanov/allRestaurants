@@ -194,3 +194,45 @@ def test_split_only_if_new_prunes_circles_that_add_nothing(tmp_path):
     assert stats.cells_pruned > 0
     assert cheap.request_count < exhaustive.request_count
     pruned.close()
+
+
+def test_resume_rebuilds_the_pending_split_frontier(tmp_path):
+    """A run cut short mid-split must resume deeper, not declare itself done.
+
+    Regression: resume used to skip an already-searched circle without
+    re-queueing the children it had been split into, so the second run found
+    nothing left to do and reported a truncated sweep as complete.
+    """
+    db = str(tmp_path / "t.db")
+    places = dense_cluster(60)
+    circles = [Circle(40.0, 49.0, 400.0)]
+
+    store = Store(db)
+    first = FakePlaces(places, budget=3)
+    stats = Sweeper(first, store, workers=1, min_radius_m=5.0, max_depth=8).run(circles)
+    partial = store.count()
+    store.close()
+    assert stats.stopped_early, "fixture should have run out of budget"
+
+    store = Store(db)
+    second = FakePlaces(places)
+    Sweeper(second, store, workers=1, min_radius_m=5.0, max_depth=8).run(circles)
+
+    assert second.request_count > 0, "resume made no calls at all"
+    assert store.count() > partial, "resume added nothing"
+    assert store.count() == 60, "resume did not reach the full set"
+    store.close()
+
+
+def test_resume_does_not_requeue_children_of_unsplit_circles(tmp_path):
+    db = str(tmp_path / "t.db")
+    circles = [Circle(40.0, 49.0, 500.0)]
+    store = Store(db)
+    Sweeper(FakePlaces([("a", 40.0, 49.0)]), store, workers=1).run(circles)
+    store.close()
+
+    store = Store(db)
+    client = FakePlaces([("a", 40.0, 49.0)])
+    Sweeper(client, store, workers=1).run(circles)
+    assert client.request_count == 0
+    store.close()

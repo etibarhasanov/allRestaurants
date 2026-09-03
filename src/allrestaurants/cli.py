@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import sys
 from typing import List, Optional, Sequence
 
 from . import __version__
 from .config import DEFAULT_DB_PATH, load_env
-from .geo import Circle, cover_bbox, cover_radius, parse_bbox, parse_latlng
+from .geo import (
+    METRES_PER_DEGREE_LAT,
+    Circle,
+    cell_radius_for_budget,
+    cover_bbox,
+    cover_radius,
+    metres_per_degree_lng,
+    parse_bbox,
+    parse_latlng,
+)
 from .places import TIER_ORDER, PlacesClient, PlacesError, resolve_types
 from .scrape import Sweeper
 from .store import Store, export_csv, export_json
@@ -35,13 +45,35 @@ def _configure_logging(verbose: bool) -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
-def _build_circles(args) -> List[Circle]:
-    """Turn --center/--radius-km or --bbox into the level-0 search circles."""
+def _resolve_cell_radius(args) -> float:
+    """Honour --budget by sizing the starting grid to fit it."""
+    if not getattr(args, "budget", None):
+        return args.cell_radius_m
+
     if args.bbox:
         south, west, north, east = parse_bbox(args.bbox)
-        return cover_bbox(south, west, north, east, args.cell_radius_m)
+        mid = (south + north) / 2
+        height = (north - south) * METRES_PER_DEGREE_LAT
+        width = (east - west) * metres_per_degree_lng(mid)
+        area = width * height
+    else:
+        area = math.pi * (args.radius_km * 1000.0) ** 2
+
+    radius = cell_radius_for_budget(area, args.budget)
+    logging.info(
+        "--budget %d: sizing starting circles to %.0fm radius", args.budget, radius
+    )
+    return radius
+
+
+def _build_circles(args) -> List[Circle]:
+    """Turn --center/--radius-km or --bbox into the level-0 search circles."""
+    cell_radius = _resolve_cell_radius(args)
+    if args.bbox:
+        south, west, north, east = parse_bbox(args.bbox)
+        return cover_bbox(south, west, north, east, cell_radius)
     lat, lng = parse_latlng(args.center)
-    return cover_radius(lat, lng, args.radius_km * 1000.0, args.cell_radius_m)
+    return cover_radius(lat, lng, args.radius_km * 1000.0, cell_radius)
 
 
 def _add_area_arguments(parser: argparse.ArgumentParser) -> None:
@@ -61,12 +93,24 @@ def _add_area_arguments(parser: argparse.ArgumentParser) -> None:
         help="Radius of the area of interest, in km. Used with --center. Default: 5.",
     )
     parser.add_argument(
+        "--budget",
+        type=int,
+        default=None,
+        help=(
+            "Aim to finish within roughly this many API calls. Sizes the"
+            " starting circles to cover the area, keeps ~30%% back for"
+            " splitting dense spots, and caps the run there. Overrides"
+            " --cell-radius-m."
+        ),
+    )
+    parser.add_argument(
         "--cell-radius-m",
         type=float,
-        default=500.0,
+        default=1000.0,
         help=(
-            "Starting radius of each search circle, in metres. Smaller means more"
-            " API calls but fewer saturated cells to split. Default: 500."
+            "Starting radius of each search circle, in metres. Smaller means"
+            " more API calls but fewer saturated circles to split. Default:"
+            " 1000, which suits the default review bar; drop it for a census."
         ),
     )
 
@@ -78,18 +122,40 @@ def cmd_scan(args) -> int:
     env = load_env(args.env_file)
     api_key = args.api_key or env.get("GOOGLE_MAPS_API_KEY")
 
+    if args.min_reviews and args.tier in ("ids", "standard"):
+        print(
+            f"error: --min-reviews needs review counts, which the {args.tier!r} "
+            "field tier does not request. Use --tier ratings (the default), or "
+            "--min-reviews 0 for a full census.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Popularity ranking is what makes the review bar a usable stopping signal;
+    # distance ranking is what makes a census possible. Pick to match the mode
+    # unless the user overrode it.
+    rank = args.rank or ("POPULARITY" if args.min_reviews else "DISTANCE")
+
     circles = _build_circles(args)
     logging.info(
         "area tiled into %d starting circle(s) of radius %.0fm",
         len(circles),
-        args.cell_radius_m,
+        circles[0].radius_m if circles else args.cell_radius_m,
     )
+    if args.min_reviews:
+        logging.info(
+            "keeping places with >= %d reviews, ranked by %s",
+            args.min_reviews,
+            rank,
+        )
+    else:
+        logging.info("census mode: keeping every place, ranked by %s", rank)
 
     client = PlacesClient(
         api_key=api_key,
         tier=args.tier,
         qps=args.qps,
-        max_requests=args.max_requests,
+        max_requests=args.max_requests or args.budget,
     )
     store = Store(args.db)
     if args.no_resume:
@@ -104,7 +170,8 @@ def cmd_scan(args) -> int:
         workers=args.workers,
         language_code=args.language,
         region_code=args.region,
-        rank_preference=args.rank,
+        rank_preference=rank,
+        min_reviews=args.min_reviews,
         resume=not args.no_resume,
         split_only_if_new=args.split_only_if_new,
     )
@@ -119,6 +186,8 @@ def cmd_scan(args) -> int:
     print(f"  circles searched : {stats.cells_searched}")
     print(f"  circles skipped  : {stats.cells_skipped} (already done)")
     print(f"  circles split    : {stats.cells_split} (came back full)")
+    if args.min_reviews:
+        print(f"  circles finished : {stats.cells_below_bar} (reached the review bar)")
     if args.split_only_if_new:
         print(f"  circles pruned   : {stats.cells_pruned} (full, but nothing new)")
     print(f"  circles failed   : {stats.cells_failed}")
@@ -126,6 +195,11 @@ def cmd_scan(args) -> int:
     print(f"  API calls made   : {client.request_count}")
     print(f"  results returned : {stats.results_seen}")
     print(f"  new restaurants  : {stats.new_places}")
+    if args.min_reviews:
+        print(
+            f"  ignored          : {stats.skipped_below_bar} result(s) under "
+            f"{args.min_reviews} reviews"
+        )
     print(f"  total in db      : {total}")
     print(f"  elapsed          : {stats.elapsed_s:.0f}s")
     if stats.stopped_early:
@@ -146,13 +220,30 @@ def cmd_estimate(args) -> int:
         else APPROX_PRICE_PER_CALL.get(args.tier, 0.035)
     )
     base = len(circles)
+    if args.budget:
+        print(f"  budget               : {args.budget} calls")
     # Every saturated circle becomes four, so the real total depends entirely
     # on density, and the spread is wide: a quiet suburb barely splits at all,
     # while a dense centre can run an order of magnitude over the starting
     # grid. These multipliers come from measured sweeps; treat the top of the
     # range as the number to budget for, not the bottom.
-    low, high = base, base * 12
+    if args.min_reviews:
+        # The review bar caps how deep splitting goes: a circle stops the first
+        # time it returns anything below the bar, which in practice is after
+        # one or two splits even downtown.
+        low, high = base, int(base * 2.5)
+    else:
+        low, high = base, base * 12
+    if args.budget:
+        # --budget also caps the run, so the estimate must not exceed it.
+        high = min(high, args.budget)
 
+    mode = (
+        f"places with >= {args.min_reviews} reviews"
+        if args.min_reviews
+        else "census: every place, however few reviews"
+    )
+    print(f"  mode                 : {mode}")
     print(f"  starting circles     : {base}")
     print(f"  API calls (estimate) : {low} (sparse area) - {high} (dense centre)")
     print(f"  price per call       : ${price:.4f} ({args.tier} tier)")
@@ -162,10 +253,10 @@ def cmd_estimate(args) -> int:
     print("  are packed together, which cannot be known before you look.")
     print()
     print("  To keep the bill down:")
+    print("    --min-reviews 50        raise the bar; biggest lever by far")
+    print("    --cell-radius-m 1500    fewer, larger starting circles")
     print("    --max-requests N        hard cap; the sweep stops cleanly and resumes")
     print("    --split-only-if-new     skip splitting circles that found nothing new")
-    print("    --max-depth 4           stop splitting sooner (may miss dense clusters)")
-    print("    --tier standard         drop ratings/phone/hours for a cheaper SKU")
     print()
     print("  Prices are indicative only - check Google's current pricing page,")
     print("  and note the recurring monthly credit on Google Maps Platform.")
@@ -312,6 +403,18 @@ def build_parser() -> argparse.ArgumentParser:
             " 'restaurant,cafe,bar,bakery'. Default: restaurant."
         ),
     )
+    scan.add_argument(
+        "--min-reviews",
+        type=int,
+        default=25,
+        help=(
+            "Only keep places with at least this many reviews, and stop"
+            " splitting a circle as soon as it returns anything below the bar."
+            " This is the single biggest cost lever. Set 0 for a full census"
+            " of every place regardless of how few reviews it has (far more"
+            " expensive). Default: 25."
+        ),
+    )
     scan.add_argument("--min-radius-m", type=float, default=40.0,
                       help="Stop splitting below this radius. Default: 40.")
     scan.add_argument("--max-depth", type=int, default=6,
@@ -327,12 +430,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--rank",
         choices=["DISTANCE", "POPULARITY"],
-        default="DISTANCE",
+        default=None,
         help=(
-            "How the API picks which 20 places to return. Keep DISTANCE for an"
-            " exhaustive sweep: it is what lets a smaller circle reveal places"
-            " a bigger one hid. POPULARITY returns the same well-known places"
-            " however far you split, so the sweep cannot drill past them."
+            "How the API picks which 20 places to return. Defaults to match the"
+            " mode: POPULARITY with --min-reviews (each circle returns its most"
+            " established places, so the weakest one tells you when to stop),"
+            " DISTANCE for a census (a smaller circle then reveals what a"
+            " bigger one hid). Rarely worth overriding."
         ),
     )
     scan.add_argument(
@@ -354,6 +458,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_area_arguments(estimate)
     estimate.add_argument("--tier", choices=TIER_ORDER, default="ratings")
+    estimate.add_argument("--min-reviews", type=int, default=25)
+    estimate.set_defaults(max_requests=None)
     estimate.add_argument("--price-per-call", type=float, default=None)
     estimate.set_defaults(func=cmd_estimate)
 
