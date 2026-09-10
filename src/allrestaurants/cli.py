@@ -25,16 +25,33 @@ from .places import TIER_ORDER, PlacesClient, PlacesError, resolve_types
 from .scrape import Sweeper
 from .store import Store, export_csv, export_json
 
-# Rough published list price per Nearby Search call, by field tier.  Google
-# changes these; treat them as an order-of-magnitude guide and check
-# https://developers.google.com/maps/billing-and-pricing/pricing before a
-# large run.  Override with --price-per-call.
+# Published US list price per Nearby Search call, by field tier, first volume
+# band, checked September 2026.  Google moves these; check
+# https://developers.google.com/maps/billing-and-pricing/pricing before a large
+# run, and override with --price-per-call.
 APPROX_PRICE_PER_CALL = {
-    "ids": 0.0,
-    "standard": 0.032,
-    "ratings": 0.035,
-    "full": 0.040,
+    "ids": 0.0,       # Essentials (IDs Only): free, and no monthly cap
+    "standard": 0.032,  # Pro
+    "ratings": 0.035,   # Enterprise -- rating and review count live here
+    "full": 0.040,      # Enterprise + Atmosphere
 }
+
+# Free calls per month, per SKU.  Google retired the pooled $200 monthly credit
+# on 1 March 2025 and replaced it with these, which neither pool nor roll over.
+# A sweep that used to be free now gets 1,000 Enterprise calls, worth $35.
+FREE_CALLS_PER_MONTH = {"ids": None, "standard": 5_000, "ratings": 1_000, "full": 1_000}
+
+# calls ~= 5.0 * sqrt(places * area_km2), measured by replaying this sweep over
+# 1,110 real Tallinn coordinates thickened up to eightfold, in
+# etibarhasanov/allBerlin -> tools/calibrate.py.  The constant held within 6.2%
+# across an eightfold density range, and reproduces the run it was fitted to:
+# 5.0*sqrt(1110*207) = 2,397 calls against 2,390 measured.
+#
+# The geometric mean is the point.  Cost follows neither term alone: an empty
+# square kilometre costs one call, and calls per place FALL as density rises,
+# from 2.15 in Tallinn to 0.76 at eight times its density.  A denser circle is
+# better value, because one call returns up to twenty places either way.
+MEASURED_CALLS_CONSTANT = 5.0
 
 
 def _restaurant_filter(where: str, include_all: bool) -> str:
@@ -256,20 +273,31 @@ def cmd_estimate(args) -> int:
         else APPROX_PRICE_PER_CALL.get(args.tier, 0.035)
     )
     base = len(circles)
+    area_km2 = _area_m2(args) / 1e6
     if args.budget:
         print(f"  budget               : {args.budget} calls")
-    # Every saturated circle becomes four, so the real total depends entirely
-    # on density, and the spread is wide: a quiet suburb barely splits at all,
-    # while a dense centre can run an order of magnitude over the starting
-    # grid. These multipliers come from measured sweeps; treat the top of the
-    # range as the number to budget for, not the bottom.
-    if args.min_reviews:
-        # The review bar caps how deep splitting goes: a circle stops the first
-        # time it returns anything below the bar, which in practice is after
-        # one or two splits even downtown.
-        low, high = base, int(base * 2.5)
+
+    if args.expect_places:
+        # The measured estimate.  Use it when you have any idea how many
+        # places the area holds -- a guess within a factor of two is worth far
+        # more here than the multipliers below, because the law only moves as
+        # the square root of what you feed it.
+        low = high = _measured_calls(args.expect_places, area_km2, base,
+                                     args.min_reviews)
+        basis = (f"measured law, {args.expect_places:,} places over "
+                 f"{area_km2:.1f} km2")
     else:
-        low, high = base, base * 12
+        # Without a place count there is nothing to measure against, so this
+        # falls back to multiplying the starting grid.  Treat the top of the
+        # range as the number to budget for: the same rule priced Tallinn's
+        # districts at 286 calls against an actual 171, and being wrong in the
+        # cheap direction is the expensive way to be wrong.
+        if args.min_reviews:
+            low, high = base, int(base * 2.5)
+        else:
+            low, high = base, base * 12
+        basis = "starting grid x a density multiplier -- pass --expect-places"
+
     if args.budget:
         # --budget also caps the run, so the estimate must not exceed it.
         high = min(high, args.budget)
@@ -281,29 +309,70 @@ def cmd_estimate(args) -> int:
         else "census: every place, however few reviews"
     )
     print(f"  mode                 : {mode}")
+    print(f"  area                 : {area_km2:.1f} km2")
     print(f"  starting circles     : {base}")
+    print(f"  basis                : {basis}")
     if low == high:
-        print(f"  API calls (estimate) : {high} (capped by --budget)")
+        capped = " (capped by --budget)" if args.budget else ""
+        print(f"  API calls (estimate) : {low:,}{capped}")
     else:
-        print(f"  API calls (estimate) : {low} (sparse area) - {high} (dense centre)")
+        print(f"  API calls (estimate) : {low:,} (sparse area) - "
+              f"{high:,} (dense centre)")
     print(f"  price per call       : ${price:.4f} ({args.tier} tier)")
+
+    free = FREE_CALLS_PER_MONTH.get(args.tier)
+    if free is None:
+        print("  cost (estimate)      : $0.00 - the IDs-Only SKU is free, and")
+        print("                         carries no review count, so the review")
+        print("                         bar cannot run and the sweep must be a")
+        print("                         census. See --min-reviews 0.")
+        return 0
     if low == high:
-        print(f"  cost (estimate)      : ${high * price:.2f}")
+        print(f"  cost at list price   : ${low * price:,.2f}")
     else:
-        print(f"  cost (estimate)      : ${low * price:.2f} - ${high * price:.2f}")
+        print(f"  cost at list price   : ${low * price:,.2f} - ${high * price:,.2f}")
+    print(f"  free this month      : {free:,} calls on this SKU"
+          f" (${free * price:,.2f})")
+    net_low = max(0, low - free) * price
+    net_high = max(0, high - free) * price
+    if net_low == net_high:
+        print(f"  after the free tier  : ${net_low:,.2f}")
+    else:
+        print(f"  after the free tier  : ${net_low:,.2f} - ${net_high:,.2f}")
     print()
-    print("  The spread is real: splitting is driven by how many restaurants")
-    print("  are packed together, which cannot be known before you look.")
-    print()
+    if not args.expect_places:
+        print("  The spread is real: splitting is driven by how many restaurants")
+        print("  are packed together, which cannot be known before you look.")
+        print("  `allrestaurants check` measures it for one call.")
+        print()
     print("  To keep the bill down:")
     print("    --min-reviews 50        raise the bar; biggest lever by far")
     print("    --cell-radius-m 1500    fewer, larger starting circles")
     print("    --max-requests N        hard cap; the sweep stops cleanly and resumes")
     print("    --split-only-if-new     skip splitting circles that found nothing new")
+    print("    run across two months   the free allowance is monthly, and does")
+    print("                            not roll over")
     print()
-    print("  Prices are indicative only - check Google's current pricing page,")
-    print("  and note the recurring monthly credit on Google Maps Platform.")
+    print("  Prices are indicative only - check Google's current pricing page.")
+    print("  The pooled $200 monthly credit was retired on 1 March 2025; what")
+    print("  is left is the per-SKU monthly allowance above.")
     return 0
+
+
+def _measured_calls(places: int, area_km2: float, base_circles: int,
+                    min_reviews: int) -> int:
+    """Calls to sweep ``area_km2`` holding ``places`` places worth keeping.
+
+    Never fewer than the starting grid, which has to be searched whatever the
+    density -- an area with no restaurants in it still costs one call per
+    circle.  In census mode the stopping rule is gone and every full circle
+    splits, which measured six times the review-bar cost on this repo's own
+    fixture (2,176 calls against 358).
+    """
+    calls = MEASURED_CALLS_CONSTANT * math.sqrt(max(0, places) * area_km2)
+    if not min_reviews:
+        calls *= 2176 / 358
+    return int(round(max(calls, base_circles)))
 
 
 # -- check ------------------------------------------------------------------
@@ -571,6 +640,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_area_arguments(estimate)
     estimate.add_argument("--tier", choices=TIER_ORDER, default="ratings")
     estimate.add_argument("--min-reviews", type=int, default=25)
+    estimate.add_argument(
+        "--expect-places", type=int, default=None,
+        help="Roughly how many places the area holds above the review bar. "
+             "Switches the estimate from a guessed multiplier to the measured "
+             "law; a guess within a factor of two still beats the multiplier, "
+             "since the law moves as the square root.",
+    )
     estimate.set_defaults(max_requests=None)
     estimate.add_argument("--price-per-call", type=float, default=None)
     estimate.set_defaults(func=cmd_estimate)

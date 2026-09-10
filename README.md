@@ -32,8 +32,14 @@ opening hours and service attributes.
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create
    or select a project.
-2. Enable **billing** on the project. There is a recurring monthly credit, but
-   the Places API is not usable without a billing account attached.
+2. Enable **billing** on the project. The Places API is not usable without a
+   billing account attached, even for the free calls. Note what "free" means
+   now: Google retired the pooled $200 monthly credit on 1 March 2025, and
+   each SKU carries its own monthly allowance instead — 10,000 Essentials,
+   5,000 Pro, **1,000 Enterprise**, which is the tier that carries review
+   counts. They neither pool nor roll over. A new billing account also gets
+   $300 of trial credit over 90 days, which is the budget most first sweeps
+   actually run on.
 3. **APIs & Services → Library →** enable **Places API (New)**.
 4. **APIs & Services → Credentials → Create credentials → API key**.
 5. Restrict the key: under *API restrictions* pick **Places API (New)** only.
@@ -61,6 +67,20 @@ cp .env.example .env      # then fill in your keys
 ```bash
 allrestaurants estimate --center "40.4093,49.8671" --radius-km 5 --budget 100
 ```
+
+If you have any idea how many places the area holds, say so — it changes the
+estimate from a guessed multiplier to a measured one:
+
+```bash
+allrestaurants estimate --bbox "52.505,13.320,52.570,13.420" --expect-places 2400
+```
+
+The measured estimate is `calls ≈ 5.0 × √(places × area_km²)`, fitted by
+replaying this sweep over 1,110 real coordinates at four densities. A guess
+within a factor of two still beats the multiplier, because the law moves as the
+square root of what you feed it. Without `--expect-places` there is nothing to
+measure against and it falls back to multiplying the starting grid — the same
+rule that once priced Tallinn's districts at 286 calls against an actual 171.
 
 ### 2. Sweep the area
 
@@ -138,7 +158,8 @@ centre can make thousands of billable calls.
 | `--cell-radius-m` | Starting circle size, if you'd rather set it directly. |
 | `--split-only-if-new` | Also skip splitting a circle when everything it returned was already known. |
 | `--max-depth`, `--min-radius-m` | How far splitting may recurse. |
-| `--tier` | Which fields to request. `standard` drops ratings, phone and hours for a cheaper billing SKU; `ratings` (default) includes them; `full` adds the editorial blurb and service attributes. |
+| `--tier` | Which fields to request. `standard` drops ratings, phone and hours for a cheaper billing SKU; `ratings` (default) includes them; `full` adds the editorial blurb and service attributes. A call bills at the highest SKU any field in its mask touches — one review count on an otherwise-Pro call prices the whole call as Enterprise. |
+| two calendar months | The free allowance is monthly and does not roll over, so a run that straddles a month boundary collects it twice. |
 
 Measured on the test fixture — 400 restaurants in a 1 km circle, 115 of them
 with 25+ reviews, a long tail of tiny places below that:
@@ -160,6 +181,29 @@ Two things that surprised me while measuring, both worth knowing:
 - **The numbers are non-monotonic.** 300 m cost more than 250 m *and* more than
   350 m, purely from how the grid happened to land on the clusters. Treat any
   single figure here as indicative, not a law.
+
+### What a whole city costs
+
+Measured, by replaying this sweep offline over the 1,110 real Tallinn
+coordinates in `exports/tallinn_restaurants.csv`, thickened up to eightfold to
+stand in for a denser city:
+
+```
+calls ≈ 5.0 × √(places × area_km²)
+```
+
+The constant held within 6.2% across an eightfold density range, and reproduces
+the run it was fitted to — 5.0·√(1110 × 207) = 2,397 calls against 2,390
+measured. The geometric mean is the finding: cost follows neither term alone.
+An empty square kilometre costs one call, and calls per place *fall* as density
+rises, from 2.15 in Tallinn to 0.76 at eight times its density, because one
+call returns up to twenty places however tightly they sit.
+
+At city scale that comes to roughly **$347 for Berlin** — 10,900 calls for
+about 10,600 places with 25+ reviews, against a $300 trial credit.
+[etibarhasanov/allBerlin](https://github.com/etibarhasanov/allBerlin) carries
+the full working: the calibration, the per-borough plan, the SKU arithmetic,
+and why the free IDs-Only SKU is a false economy rather than a shortcut.
 
 **The `--split-only-if-new` caveat**: it is a heuristic. A circle can return 20
 already-known places while still hiding an unknown one behind them — that is
@@ -261,7 +305,7 @@ pip install -e .[dev]
 pytest
 ```
 
-57 tests, no network calls. The interesting ones:
+103 tests, no network calls. The interesting ones:
 
 - `test_geo.py` samples points across generated grids and asserts every one
   falls inside some circle — the gap-free coverage claim, checked with real
