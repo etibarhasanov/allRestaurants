@@ -202,8 +202,9 @@ call returns up to twenty places however tightly they sit.
 At city scale that comes to roughly **$347 for Berlin** — 10,900 calls for
 about 10,600 places with 25+ reviews, against a $300 trial credit.
 [etibarhasanov/allBerlin](https://github.com/etibarhasanov/allBerlin) carries
-the full working: the calibration, the per-borough plan, the SKU arithmetic,
-and why the free IDs-Only SKU is a false economy rather than a shortcut.
+the full working: the calibration, the per-borough plan, and the SKU
+arithmetic -- including the fact that Nearby Search has no free IDs-Only tier,
+which an earlier version of both repositories got wrong.
 
 **The `--split-only-if-new` caveat**: it is a heuristic. A circle can return 20
 already-known places while still hiding an unknown one behind them — that is

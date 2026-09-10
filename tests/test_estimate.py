@@ -75,17 +75,20 @@ def test_estimate_respects_the_budget_cap(capsys):
     assert calls <= 100
 
 
-def test_ids_tier_is_free_and_says_why_that_is_not_a_shortcut(capsys):
+def test_ids_tier_is_not_free_on_nearby_search(capsys):
+    """Text Search and Place Details have a free IDs-Only SKU; Nearby Search
+    does not. This once printed $0.00, and a whole census was priced on it."""
     main(["estimate", "--bbox", "52.505,13.320,52.570,13.420",
           "--expect-places", "2415", "--tier", "ids"])
     out = capsys.readouterr().out
-    assert "$0.00" in out
-    assert "no review count" in out
+    assert "$0.00" not in out.split("free this month")[0]
+    assert "no IDs-Only SKU" in out
+    assert APPROX_PRICE_PER_CALL["ids"] == APPROX_PRICE_PER_CALL["standard"]
 
 
 def test_price_table_matches_the_free_tier_table():
     assert set(APPROX_PRICE_PER_CALL) == set(FREE_CALLS_PER_MONTH)
-    assert FREE_CALLS_PER_MONTH["ids"] is None      # free, no cap
+    assert FREE_CALLS_PER_MONTH["ids"] == 5_000    # billed at Pro
     assert FREE_CALLS_PER_MONTH["ratings"] == 1_000  # Enterprise
     assert APPROX_PRICE_PER_CALL["ratings"] > APPROX_PRICE_PER_CALL["standard"]
 

@@ -29,9 +29,13 @@ from .store import Store, export_csv, export_json
 # band, checked September 2026.  Google moves these; check
 # https://developers.google.com/maps/billing-and-pricing/pricing before a large
 # run, and override with --price-per-call.
+#
+# Note the ids tier.  Text Search and Place Details have a free IDs-Only SKU;
+# Nearby Search does not, and a Nearby Search request that asks for nothing but
+# places.id is billed at Pro.  This table once said 0.0 and it was wrong.
 APPROX_PRICE_PER_CALL = {
-    "ids": 0.0,       # Essentials (IDs Only): free, and no monthly cap
-    "standard": 0.032,  # Pro
+    "ids": 0.032,       # billed at Pro: Nearby Search has no IDs-Only SKU
+    "standard": 0.032,  # Pro -- name, address, location, types
     "ratings": 0.035,   # Enterprise -- rating and review count live here
     "full": 0.040,      # Enterprise + Atmosphere
 }
@@ -39,7 +43,7 @@ APPROX_PRICE_PER_CALL = {
 # Free calls per month, per SKU.  Google retired the pooled $200 monthly credit
 # on 1 March 2025 and replaced it with these, which neither pool nor roll over.
 # A sweep that used to be free now gets 1,000 Enterprise calls, worth $35.
-FREE_CALLS_PER_MONTH = {"ids": None, "standard": 5_000, "ratings": 1_000, "full": 1_000}
+FREE_CALLS_PER_MONTH = {"ids": 5_000, "standard": 5_000, "ratings": 1_000, "full": 1_000}
 
 # calls ~= 5.0 * sqrt(places * area_km2), measured by replaying this sweep over
 # 1,110 real Tallinn coordinates thickened up to eightfold, in
@@ -320,13 +324,12 @@ def cmd_estimate(args) -> int:
               f"{high:,} (dense centre)")
     print(f"  price per call       : ${price:.4f} ({args.tier} tier)")
 
-    free = FREE_CALLS_PER_MONTH.get(args.tier)
-    if free is None:
-        print("  cost (estimate)      : $0.00 - the IDs-Only SKU is free, and")
-        print("                         carries no review count, so the review")
-        print("                         bar cannot run and the sweep must be a")
-        print("                         census. See --min-reviews 0.")
-        return 0
+    free = FREE_CALLS_PER_MONTH[args.tier]
+    if args.tier == "ids":
+        print("  note                 : the ids tier is not free on Nearby Search --")
+        print("                         there is no IDs-Only SKU for it, and a request")
+        print("                         for nothing but places.id bills at Pro. It")
+        print("                         costs what 'standard' costs and returns less.")
     if low == high:
         print(f"  cost at list price   : ${low * price:,.2f}")
     else:
